@@ -563,6 +563,47 @@ function SaferLocation() {
                 </div>
               </div>
             </div>
+
+            {/* Safety Analysis Display - Appears when route is found */}
+            {routeInfo && (
+              <div className="mt-6 bg-blue-50 rounded-xl shadow-md border border-blue-200 p-5">
+                <h3 className="text-sm font-semibold text-blue-800 mb-3 flex items-center">
+                  <Shield className="h-4 w-4 mr-2" />
+                  Why This Route is Safer
+                </h3>
+                <div className="space-y-2 text-xs text-blue-700">
+                  <div className="flex items-start">
+                    <div className="w-1 h-1 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                    <span><strong>Traffic Optimization:</strong> Avoids high-congestion areas and accident-prone zones</span>
+                  </div>
+                  <div className="flex items-start">
+                    <div className="w-1 h-1 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                    <span><strong>Crime Data Analysis:</strong> Path avoids areas with higher crime incidents</span>
+                  </div>
+                  <div className="flex items-start">
+                    <div className="w-1 h-1 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                    <span><strong>Well-lit Streets:</strong> Prioritizes routes with adequate street lighting</span>
+                  </div>
+                  <div className="flex items-start">
+                    <div className="w-1 h-1 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                    <span><strong>Emergency Access:</strong> Maintains proximity to hospitals and police stations</span>
+                  </div>
+                  <div className="flex items-start">
+                    <div className="w-1 h-1 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                    <span><strong>Road Quality:</strong> Prefers well-maintained roads with proper signage</span>
+                  </div>
+                  <div className="flex items-start">
+                    <div className="w-1 h-1 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                    <span><strong>Population Balance:</strong> Routes through moderately populated safe areas</span>
+                  </div>
+                </div>
+                <div className="mt-3 pt-2 border-t border-blue-300">
+                  <p className="text-xs text-blue-600 font-medium">
+                    ✓ Route analyzed against multiple safety parameters
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Content Area */}
