@@ -7,6 +7,7 @@ declare global {
   interface Window {
     google: any;
     lastMapCenter: number; // Added for simplified map centering
+    lastAddressUpdate: number; // Added for address update throttling
   }
 }
 
@@ -25,22 +26,26 @@ const loadGoogleMapsScript = (callback: () => void) => {
 
   const existingScript = document.getElementById("googleMaps");
   if (!existingScript) {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      console.error("Google Maps API key not found in environment variables");
+      return;
+    }
+
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyDjhuWZztdK2U2wWaGAyvgS5DxTCqi8kmg&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry&loading=async`;
     script.id = "googleMaps";
     script.async = true;
     script.defer = true;
-    document.body.appendChild(script);
+    document.head.appendChild(script); // Use head instead of body for faster loading
     
     script.onload = () => {
-      // Wait a bit for Google Maps to be fully initialized
-      setTimeout(() => {
-        if (window.google && window.google.maps) {
-          callback();
-        } else {
-          console.error("Google Maps failed to load properly");
-        }
-      }, 100);
+      // Immediate callback, no delay
+      if (window.google && window.google.maps) {
+        callback();
+      } else {
+        console.error("Google Maps failed to load properly");
+      }
     };
     
     script.onerror = () => {
@@ -52,7 +57,7 @@ const loadGoogleMapsScript = (callback: () => void) => {
       if (window.google && window.google.maps) {
         callback();
       } else {
-        setTimeout(checkLoaded, 100);
+        setTimeout(checkLoaded, 50); // Faster checking
       }
     };
     checkLoaded();
@@ -74,7 +79,6 @@ function SaferLocation() {
   const [error, setError] = useState<string | null>(null);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
   const [isLoadingRoute, setIsLoadingRoute] = useState(false);
-  const [isWakingAPI, setIsWakingAPI] = useState(false);
   const [currentLocationMarker, setCurrentLocationMarker] = useState<any>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const [watchId, setWatchId] = useState<number | null>(null);
@@ -100,98 +104,27 @@ function SaferLocation() {
           center: { lat: 28.6139, lng: 77.2090 },
           zoom: 12,
           mapTypeId: "roadmap",
+          // Simplified styles for faster loading
           styles: [
-            {
-              "featureType": "all",
-              "elementType": "geometry.fill",
-              "stylers": [{"weight": "2.00"}]
-            },
-            {
-              "featureType": "all",
-              "elementType": "geometry.stroke",
-              "stylers": [{"color": "#9c9c9c"}]
-            },
-            {
-              "featureType": "all",
-              "elementType": "labels.text",
-              "stylers": [{"visibility": "on"}]
-            },
-            {
-              "featureType": "landscape",
-              "elementType": "all",
-              "stylers": [{"color": "#f2f2f2"}]
-            },
-            {
-              "featureType": "landscape",
-              "elementType": "geometry.fill",
-              "stylers": [{"color": "#ffffff"}]
-            },
-            {
-              "featureType": "landscape.man_made",
-              "elementType": "geometry.fill",
-              "stylers": [{"color": "#ffffff"}]
-            },
             {
               "featureType": "poi",
               "elementType": "all",
               "stylers": [{"visibility": "off"}]
             },
             {
-              "featureType": "road",
-              "elementType": "all",
-              "stylers": [{"saturation": -100}, {"lightness": 45}]
-            },
-            {
-              "featureType": "road",
-              "elementType": "geometry.fill",
-              "stylers": [{"color": "#eeeeee"}]
-            },
-            {
-              "featureType": "road",
-              "elementType": "labels.text.fill",
-              "stylers": [{"color": "#7b7b7b"}]
-            },
-            {
-              "featureType": "road",
-              "elementType": "labels.text.stroke",
-              "stylers": [{"color": "#ffffff"}]
-            },
-            {
-              "featureType": "road.highway",
-              "elementType": "all",
-              "stylers": [{"visibility": "simplified"}]
-            },
-            {
-              "featureType": "road.arterial",
-              "elementType": "labels.icon",
-              "stylers": [{"visibility": "off"}]
-            },
-            {
               "featureType": "transit",
               "elementType": "all",
               "stylers": [{"visibility": "off"}]
-            },
-            {
-              "featureType": "water",
-              "elementType": "all",
-              "stylers": [{"color": "#46bcec"}, {"visibility": "on"}]
-            },
-            {
-              "featureType": "water",
-              "elementType": "geometry.fill",
-              "stylers": [{"color": "#c8d7d4"}]
-            },
-            {
-              "featureType": "water",
-              "elementType": "labels.text.fill",
-              "stylers": [{"color": "#070707"}]
-            },
-            {
-              "featureType": "water",
-              "elementType": "labels.text.stroke",
-              "stylers": [{"color": "#ffffff"}]
             }
-          ]
+          ],
+          // Performance optimizations
+          gestureHandling: 'cooperative',
+          zoomControl: true,
+          mapTypeControl: false,
+          scaleControl: false,
+          streetViewControl: false,
+          rotateControl: false,
+          fullscreenControl: false
         });
         setMapInstance(map);
         setIsMapLoaded(true);
@@ -207,7 +140,31 @@ function SaferLocation() {
     });
   }, []);
 
-  // Live GPS Tracking
+  // Convert coordinates to readable address
+  const getAddressFromCoords = async (lat: number, lng: number): Promise<string> => {
+    return new Promise((resolve) => {
+      if (!window.google || !window.google.maps) {
+        resolve(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+        return;
+      }
+
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode(
+        { location: { lat, lng } },
+        (results: any, status: any) => {
+          if (status === 'OK' && results[0]) {
+            // Get a short, readable address
+            const address = results[0].formatted_address;
+            const shortAddress = address.split(',').slice(0, 2).join(', ');
+            resolve(shortAddress);
+          } else {
+            resolve(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+          }
+        }
+      );
+    });
+  };
+
   const toggleLiveTracking = () => {
     if (!navigator.geolocation) {
       setError("Geolocation is not supported by your browser.");
@@ -232,17 +189,22 @@ function SaferLocation() {
       // Enhanced geolocation options for better accuracy
       const geoOptions = {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 5000 // Allow some cached data for speed
+        timeout: 15000, // Longer timeout to avoid timeout errors
+        maximumAge: 10000 // Allow some cached data for speed
       };
 
       // First, get the current position immediately
       navigator.geolocation.getCurrentPosition(
-        (position) => {
+        async (position) => {
           const { latitude, longitude, accuracy } = position.coords;
-          const locationString = `${latitude},${longitude}`;
           
           console.log("Initial GPS:", latitude, longitude, "±" + Math.round(accuracy) + "m");
+          
+          // Convert coordinates to readable address
+          const address = await getAddressFromCoords(latitude, longitude);
+          setPickup(address);
+          
+          console.log("Address:", address);
           
           // Simple accuracy feedback
           if (accuracy > 100) {
@@ -250,8 +212,6 @@ function SaferLocation() {
           } else {
             setError(null);
           }
-          
-          setPickup(locationString);
           
           if (mapInstance) {
             const newCenter = new window.google.maps.LatLng(latitude, longitude);
@@ -272,7 +232,7 @@ function SaferLocation() {
             const marker = new window.google.maps.Marker({
               position: { lat: latitude, lng: longitude },
               map: mapInstance,
-              title: `Your Location (±${Math.round(accuracy)}m)`,
+              title: `Your Location: ${address} (±${Math.round(accuracy)}m)`,
               icon: {
                 path: window.google.maps.SymbolPath.CIRCLE,
                 scale: 10,
@@ -306,16 +266,16 @@ function SaferLocation() {
           let errorMessage = "Location error: ";
           switch(error.code) {
             case error.PERMISSION_DENIED:
-              errorMessage += "Permission denied. Enable location in browser settings.";
+              errorMessage += "Please enable location permissions in your browser settings.";
               break;
             case error.POSITION_UNAVAILABLE:
-              errorMessage += "Position unavailable. Try outdoors.";
+              errorMessage += "GPS signal unavailable. Try moving outdoors or near a window.";
               break;
             case error.TIMEOUT:
-              errorMessage += "Timeout. Try again.";
+              errorMessage += "GPS is taking longer than expected. Please wait and try again, or ensure you're in an area with good GPS signal.";
               break;
             default:
-              errorMessage += "Unknown error.";
+              errorMessage += "Unknown GPS error. Please try again.";
               break;
           }
           setError(errorMessage);
@@ -323,15 +283,20 @@ function SaferLocation() {
         geoOptions
       );
 
-      // Then set up continuous tracking with simplified options for speed
+      // Then set up continuous tracking with the same options
       const id = navigator.geolocation.watchPosition(
-        (position) => {
+        async (position) => {
           const { latitude, longitude, accuracy } = position.coords;
-          const locationString = `${latitude},${longitude}`;
           
           console.log("GPS Update:", latitude, longitude, "±" + Math.round(accuracy) + "m");
           
-          setPickup(locationString);
+          // Update address less frequently (every 10 seconds) to avoid too many API calls
+          const now = Date.now();
+          if (!window.lastAddressUpdate || now - window.lastAddressUpdate > 10000) {
+            const address = await getAddressFromCoords(latitude, longitude);
+            setPickup(address);
+            window.lastAddressUpdate = now;
+          }
           
           if (mapInstance && currentLocationMarker && currentLocationMarker.marker) {
             const newPosition = { lat: latitude, lng: longitude };
@@ -346,7 +311,6 @@ function SaferLocation() {
             }
             
             // Only recenter map occasionally, not every update
-            const now = Date.now();
             if (!window.lastMapCenter || now - window.lastMapCenter > 3000) { // Every 3 seconds max
               mapInstance.setCenter(newPosition);
               window.lastMapCenter = now;
@@ -355,80 +319,15 @@ function SaferLocation() {
         },
         (error) => {
           console.error("Error tracking location:", error);
-          setError("Error tracking location: " + error.message);
+          setError("GPS tracking error: " + error.message + ". Try moving to an area with better GPS signal.");
         },
         {
           enableHighAccuracy: true,
-          timeout: 8000,               // Faster timeout
-          maximumAge: 5000             // Allow 5 second old data for speed
+          timeout: 12000,               // Longer timeout for continuous tracking
+          maximumAge: 8000              // Allow some old data for smoother updates
         }
       );
       setWatchId(id);
-    }
-  };
-
-  // Manual location input for areas with poor GPS
-  const setManualLocation = async () => {
-    const manualLocation = "Ganganagar, Rajasthan, India";
-    
-    try {
-      // Use Google Geocoding to get coordinates for manual location
-      const geocoder = new window.google.maps.Geocoder();
-      
-      geocoder.geocode({ address: manualLocation }, (results: any, status: any) => {
-        if (status === 'OK' && results[0]) {
-          const location = results[0].geometry.location;
-          const lat = location.lat();
-          const lng = location.lng();
-          const locationString = `${lat},${lng}`;
-          
-          console.log("=== MANUAL LOCATION SET ===");
-          console.log("Location:", manualLocation);
-          console.log("Coordinates:", lat, lng);
-          
-          setPickup(locationString);
-          setError(null);
-          
-          if (mapInstance) {
-            const newCenter = new window.google.maps.LatLng(lat, lng);
-            mapInstance.setCenter(newCenter);
-            mapInstance.setZoom(14);
-            
-            // Remove existing current location marker
-            if (currentLocationMarker) {
-              if (currentLocationMarker.marker) {
-                currentLocationMarker.marker.setMap(null);
-              }
-              if (currentLocationMarker.accuracyCircle) {
-                currentLocationMarker.accuracyCircle.setMap(null);
-              }
-            }
-            
-            // Add a green marker for manual location
-            const marker = new window.google.maps.Marker({
-              position: { lat, lng },
-              map: mapInstance,
-              title: `Manual Location: ${manualLocation}`,
-              icon: {
-                path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 12,
-                fillColor: '#10B981', // Green color for manual location
-                fillOpacity: 1,
-                strokeColor: '#ffffff',
-                strokeWeight: 3,
-              },
-              zIndex: 1000
-            });
-            
-            setCurrentLocationMarker({ marker, accuracyCircle: null });
-          }
-        } else {
-          setError("Failed to find coordinates for manual location. Please try GPS tracking instead.");
-        }
-      });
-    } catch (error) {
-      console.error("Error setting manual location:", error);
-      setError("Failed to set manual location. Please try GPS tracking instead.");
     }
   };
 
@@ -444,26 +343,6 @@ function SaferLocation() {
     } catch (error) {
       console.error("API connection test failed:", error);
       return false;
-    }
-  };
-
-  // Wake up API (for local development)
-  const wakeUpAPI = async () => {
-    setIsWakingAPI(true);
-    setError(null);
-    
-    try {
-      console.log("Testing local API service...");
-      await axios.get("http://localhost:3000/", {
-        timeout: 10000
-      });
-      setError(null);
-      console.log("Local API service is working!");
-    } catch (error) {
-      console.error("Failed to connect to local API:", error);
-      setError("Failed to connect to the local API service. Make sure the backend server is running on port 3000.");
-    } finally {
-      setIsWakingAPI(false);
     }
   };
 
@@ -677,10 +556,10 @@ function SaferLocation() {
                   GPS Tips
                 </h4>
                 <div className="space-y-2 text-xs text-gray-600">
-                  <div>🚗 Use green button for Ganganagar</div>
-                  <div>📍 Enable location permissions</div>
-                  <div>🌤️ Move outdoors for better signal</div>
-                  <div>⏱️ Wait for GPS to stabilize</div>
+                  <div>📍 Enable location permissions in browser</div>
+                  <div>🌤️ Move outdoors for better GPS signal</div>
+                  <div>⏱️ Wait 10-15 seconds for GPS to stabilize</div>
+                  <div>🔋 Keep device charged for better accuracy</div>
                 </div>
               </div>
             </div>
@@ -737,11 +616,11 @@ function SaferLocation() {
               )}
 
               {/* Control Buttons Row */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+              <div className="mb-6">
                 {/* Live Tracking Button */}
                 <button
                   onClick={toggleLiveTracking}
-                  className={`px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center ${
+                  className={`w-full px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center ${
                     watchId
                       ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
                       : "bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200"
@@ -749,31 +628,7 @@ function SaferLocation() {
                   disabled={!isMapLoaded}
                 >
                   <Navigation className={`h-4 w-4 mr-2 ${watchId ? "animate-spin" : ""}`} />
-                  {watchId ? "Stop GPS" : "Start GPS"}
-                </button>
-
-                {/* Manual Location Button */}
-                <button
-                  onClick={setManualLocation}
-                  className={`px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 ${!isMapLoaded ? "opacity-50 cursor-not-allowed" : ""}`}
-                  disabled={!isMapLoaded}
-                >
-                  <MapPin className="h-4 w-4 mr-2" />
-                  Ganganagar
-                </button>
-
-                {/* Test API Button */}
-                <button
-                  onClick={wakeUpAPI}
-                  className="px-4 py-3 rounded-lg font-medium text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200 transition-all duration-200 flex items-center justify-center"
-                  disabled={isWakingAPI}
-                >
-                  {isWakingAPI ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 mr-2" />
-                  )}
-                  Test API
+                  {watchId ? "Stop GPS Tracking" : "Start GPS Tracking"}
                 </button>
               </div>
 
