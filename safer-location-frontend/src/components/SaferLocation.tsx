@@ -11,14 +11,14 @@ declare global {
 
 interface GoogleMaps {
   Map: any;
-  Polyline: any;
+  Polyline: any;  
   LatLng: any;
 }
 // https://github.com/dodaa08/Zarva.git
 const loadGoogleMapsScript = (callback: () => void) => {
   // Check if Google Maps is already loaded
   if (window.google && window.google.maps) {
-    callback();
+    callback(); 
     return;
   }
 
@@ -274,14 +274,20 @@ function SaferLocation() {
               title: `Your Current Location (±${Math.round(accuracy)}m accuracy)`,
               icon: {
                 path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 10,
+                scale: 12,
                 fillColor: '#4285F4',
                 fillOpacity: 1,
                 strokeColor: '#ffffff',
-                strokeWeight: 3,
+                strokeWeight: 4,
               },
-              zIndex: 1000
+              zIndex: 1000,
+              animation: window.google.maps.Animation.BOUNCE // Add bounce animation initially
             });
+            
+            // Stop bouncing after 2 seconds
+            setTimeout(() => {
+              marker.setAnimation(null);
+            }, 2000);
             
             // Add accuracy circle
             const accuracyCircle = new window.google.maps.Circle({
@@ -338,7 +344,7 @@ function SaferLocation() {
           if (mapInstance && currentLocationMarker) {
             const newPosition = { lat: latitude, lng: longitude };
             
-            // Update marker position
+            // Update marker position smoothly
             if (currentLocationMarker.marker) {
               currentLocationMarker.marker.setPosition(newPosition);
               currentLocationMarker.marker.setTitle(`Your Current Location (±${Math.round(accuracy)}m accuracy)`);
@@ -350,9 +356,18 @@ function SaferLocation() {
               currentLocationMarker.accuracyCircle.setRadius(accuracy);
             }
             
-            // Only recenter if accuracy is good (less than 50m) to avoid jumping around
-            if (accuracy < 50) {
-              mapInstance.setCenter(newPosition);
+            // Always follow the user's movement by centering the map
+            mapInstance.setCenter(newPosition);
+            
+            // Adjust zoom based on accuracy - closer zoom for better accuracy
+            if (accuracy < 20) {
+              mapInstance.setZoom(19); // Very close for high accuracy
+            } else if (accuracy < 50) {
+              mapInstance.setZoom(18); // Close for good accuracy
+            } else if (accuracy < 100) {
+              mapInstance.setZoom(17); // Medium for moderate accuracy
+            } else {
+              mapInstance.setZoom(16); // Farther for poor accuracy
             }
           }
         },
@@ -360,9 +375,78 @@ function SaferLocation() {
           console.error("Error tracking location:", error);
           setError("Error tracking location: " + error.message + ". Try moving to an area with better GPS signal.");
         },
-        geoOptions
+        {
+          enableHighAccuracy: true,    // Use GPS if available
+          timeout: 10000,              // Shorter timeout for more frequent updates
+          maximumAge: 1000             // Allow location data up to 1 second old for smoother updates
+        }
       );
       setWatchId(id);
+    }
+  };
+
+  // Manual location input for areas with poor GPS
+  const setManualLocation = async () => {
+    const manualLocation = "Ganganagar, Rajasthan, India";
+    
+    try {
+      // Use Google Geocoding to get coordinates for manual location
+      const geocoder = new window.google.maps.Geocoder();
+      
+      geocoder.geocode({ address: manualLocation }, (results: any, status: any) => {
+        if (status === 'OK' && results[0]) {
+          const location = results[0].geometry.location;
+          const lat = location.lat();
+          const lng = location.lng();
+          const locationString = `${lat},${lng}`;
+          
+          console.log("=== MANUAL LOCATION SET ===");
+          console.log("Location:", manualLocation);
+          console.log("Coordinates:", lat, lng);
+          
+          setPickup(locationString);
+          setError(null);
+          
+          if (mapInstance) {
+            const newCenter = new window.google.maps.LatLng(lat, lng);
+            mapInstance.setCenter(newCenter);
+            mapInstance.setZoom(14);
+            
+            // Remove existing current location marker
+            if (currentLocationMarker) {
+              if (currentLocationMarker.marker) {
+                currentLocationMarker.marker.setMap(null);
+              }
+              if (currentLocationMarker.accuracyCircle) {
+                currentLocationMarker.accuracyCircle.setMap(null);
+              }
+            }
+            
+            // Add a green marker for manual location
+            const marker = new window.google.maps.Marker({
+              position: { lat, lng },
+              map: mapInstance,
+              title: `Manual Location: ${manualLocation}`,
+              icon: {
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 12,
+                fillColor: '#10B981', // Green color for manual location
+                fillOpacity: 1,
+                strokeColor: '#ffffff',
+                strokeWeight: 3,
+              },
+              zIndex: 1000
+            });
+            
+            setCurrentLocationMarker({ marker, accuracyCircle: null });
+          }
+        } else {
+          setError("Failed to find coordinates for manual location. Please try GPS tracking instead.");
+        }
+      });
+    } catch (error) {
+      console.error("Error setting manual location:", error);
+      setError("Failed to set manual location. Please try GPS tracking instead.");
     }
   };
 
@@ -626,15 +710,37 @@ function SaferLocation() {
               {/* Live Tracking Button */}
               <button
                 onClick={toggleLiveTracking}
-                className={`w-full mb-6 px-4 py-3 rounded-xl font-medium transition-all duration-200 flex items-center justify-center ${
+                className={`w-full mb-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 flex items-center justify-center ${
                   watchId
-                    ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
+                    ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 animate-pulse"
                     : "bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200"
                 } ${!isMapLoaded ? "opacity-50 cursor-not-allowed" : ""}`}
                 disabled={!isMapLoaded}
               >
-                <Navigation className={`h-5 w-5 mr-2 ${watchId ? "animate-pulse" : ""}`} />
-                {watchId ? "Stop Live Tracking" : "Start Live Tracking"}
+                <Navigation className={`h-5 w-5 mr-2 ${watchId ? "animate-spin" : ""}`} />
+                {watchId ? "🔴 Live Tracking Active" : "📍 Start Live Tracking"}
+              </button>
+
+              {/* Status indicator when tracking */}
+              {watchId && (
+                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+                    <span className="text-sm text-blue-700 font-medium">
+                      Following your movement in real-time
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Location Button */}
+              <button
+                onClick={setManualLocation}
+                className={`w-full mb-6 px-4 py-3 rounded-xl font-medium transition-all duration-200 flex items-center justify-center bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 ${!isMapLoaded ? "opacity-50 cursor-not-allowed" : ""}`}
+                disabled={!isMapLoaded}
+              >
+                <MapPin className="h-5 w-5 mr-2" />
+                Set Location: Ganganagar, Rajasthan
               </button>
 
               {/* Input Fields */}
@@ -755,11 +861,13 @@ function SaferLocation() {
               <div className="mt-6 pt-4 border-t border-gray-200">
                 <h4 className="text-sm font-semibold text-gray-900 mb-3">📍 GPS Accuracy Tips</h4>
                 <div className="space-y-2 text-xs text-gray-600">
+                  <div>• <strong>GPS Issues in Rajasthan?</strong> Use the green "Set Location" button above</div>
                   <div>• Enable high accuracy location in browser settings</div>
                   <div>• Move outdoors for better GPS signal</div>
                   <div>• Allow location permissions when prompted</div>
-                  <div>• Wait a few seconds for GPS to stabilize</div>
-                  <div>• Clear sky view improves accuracy</div>
+                  <div>• Wait 10-15 seconds for GPS to stabilize</div>
+                  <div>• Clear sky view improves accuracy significantly</div>
+                  <div>• If GPS shows wrong city (like Udaipur), use manual location</div>
                 </div>
               </div>
             </div>
