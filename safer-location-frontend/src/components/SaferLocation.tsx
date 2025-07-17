@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MapPin, Navigation, Loader2, Clock, Route, AlertCircle } from "lucide-react";
+import { MapPin, Navigation, Loader2, Clock, Route, AlertCircle, Car, Shield, Eye, Phone } from "lucide-react";
 import axios from "axios";
 
 // Google Maps type declarations
 declare global {
   interface Window {
     google: any;
+    lastMapCenter: number; // Added for simplified map centering
   }
 }
 
@@ -230,27 +231,22 @@ function SaferLocation() {
     } else {
       // Enhanced geolocation options for better accuracy
       const geoOptions = {
-        enableHighAccuracy: true,    // Use GPS if available
-        timeout: 15000,              // Increased timeout for better accuracy
-        maximumAge: 0                // Always get fresh location, don't use cache
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 5000 // Allow some cached data for speed
       };
 
-      // First, get the current position immediately with enhanced accuracy
+      // First, get the current position immediately
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude, accuracy } = position.coords;
           const locationString = `${latitude},${longitude}`;
           
-          // Debug information
-          console.log("=== GPS LOCATION DEBUG ===");
-          console.log("Latitude:", latitude);
-          console.log("Longitude:", longitude);
-          console.log("Accuracy:", accuracy, "meters");
-          console.log("Timestamp:", new Date(position.timestamp));
+          console.log("Initial GPS:", latitude, longitude, "±" + Math.round(accuracy) + "m");
           
-          // Show accuracy warning if location is not very accurate
+          // Simple accuracy feedback
           if (accuracy > 100) {
-            setError(`Location accuracy is ${Math.round(accuracy)}m. For better accuracy, ensure GPS is enabled and you're outdoors with clear sky view.`);
+            setError(`Location accuracy: ${Math.round(accuracy)}m. Try moving outdoors for better accuracy.`);
           } else {
             setError(null);
           }
@@ -260,67 +256,66 @@ function SaferLocation() {
           if (mapInstance) {
             const newCenter = new window.google.maps.LatLng(latitude, longitude);
             mapInstance.setCenter(newCenter);
-            mapInstance.setZoom(18); // Higher zoom for better precision
+            mapInstance.setZoom(16); // Fixed zoom level for consistency
             
             // Remove existing current location marker
             if (currentLocationMarker) {
-              currentLocationMarker.setMap(null);
+              if (currentLocationMarker.marker) {
+                currentLocationMarker.marker.setMap(null);
+              }
+              if (currentLocationMarker.accuracyCircle) {
+                currentLocationMarker.accuracyCircle.setMap(null);
+              }
             }
             
-            // Add a blue dot marker for current location with accuracy circle
+            // Simple blue dot marker
             const marker = new window.google.maps.Marker({
               position: { lat: latitude, lng: longitude },
               map: mapInstance,
-              title: `Your Current Location (±${Math.round(accuracy)}m accuracy)`,
+              title: `Your Location (±${Math.round(accuracy)}m)`,
               icon: {
                 path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 12,
+                scale: 10,
                 fillColor: '#4285F4',
                 fillOpacity: 1,
                 strokeColor: '#ffffff',
-                strokeWeight: 4,
+                strokeWeight: 3,
               },
-              zIndex: 1000,
-              animation: window.google.maps.Animation.BOUNCE // Add bounce animation initially
+              zIndex: 1000
             });
             
-            // Stop bouncing after 2 seconds
-            setTimeout(() => {
-              marker.setAnimation(null);
-            }, 2000);
-            
-            // Add accuracy circle
+            // Simple accuracy circle (smaller for performance)
             const accuracyCircle = new window.google.maps.Circle({
               strokeColor: '#4285F4',
-              strokeOpacity: 0.8,
-              strokeWeight: 2,
+              strokeOpacity: 0.5,
+              strokeWeight: 1,
               fillColor: '#4285F4',
-              fillOpacity: 0.15,
+              fillOpacity: 0.1,
               map: mapInstance,
               center: { lat: latitude, lng: longitude },
-              radius: accuracy // accuracy in meters
+              radius: accuracy
             });
             
             setCurrentLocationMarker({ marker, accuracyCircle });
           }
           
-          console.log("Current location updated:", latitude, longitude);
+          console.log("Location tracking started");
         },
         (error) => {
-          console.error("Error getting current location:", error);
-          let errorMessage = "Error getting location: ";
+          console.error("GPS Error:", error.message);
+          let errorMessage = "Location error: ";
           switch(error.code) {
             case error.PERMISSION_DENIED:
-              errorMessage += "Location access denied. Please enable location permissions in your browser settings.";
+              errorMessage += "Permission denied. Enable location in browser settings.";
               break;
             case error.POSITION_UNAVAILABLE:
-              errorMessage += "Location information unavailable. Try moving to an area with better GPS signal.";
+              errorMessage += "Position unavailable. Try outdoors.";
               break;
             case error.TIMEOUT:
-              errorMessage += "Location request timed out. Please try again or move to an area with better GPS signal.";
+              errorMessage += "Timeout. Try again.";
               break;
             default:
-              errorMessage += "Unknown error occurred. Please check your location settings.";
+              errorMessage += "Unknown error.";
               break;
           }
           setError(errorMessage);
@@ -328,57 +323,44 @@ function SaferLocation() {
         geoOptions
       );
 
-      // Then set up continuous tracking with the same enhanced options
+      // Then set up continuous tracking with simplified options for speed
       const id = navigator.geolocation.watchPosition(
         (position) => {
           const { latitude, longitude, accuracy } = position.coords;
           const locationString = `${latitude},${longitude}`;
           
-          console.log("=== GPS UPDATE ===");
-          console.log("New location:", latitude, longitude);
-          console.log("Accuracy:", accuracy, "meters");
-          console.log("Time:", new Date(position.timestamp));
+          console.log("GPS Update:", latitude, longitude, "±" + Math.round(accuracy) + "m");
           
           setPickup(locationString);
           
-          if (mapInstance && currentLocationMarker) {
+          if (mapInstance && currentLocationMarker && currentLocationMarker.marker) {
             const newPosition = { lat: latitude, lng: longitude };
             
-            // Update marker position smoothly
-            if (currentLocationMarker.marker) {
-              currentLocationMarker.marker.setPosition(newPosition);
-              currentLocationMarker.marker.setTitle(`Your Current Location (±${Math.round(accuracy)}m accuracy)`);
-            }
+            // Simple marker position update
+            currentLocationMarker.marker.setPosition(newPosition);
             
-            // Update accuracy circle
+            // Update accuracy circle if it exists
             if (currentLocationMarker.accuracyCircle) {
               currentLocationMarker.accuracyCircle.setCenter(newPosition);
               currentLocationMarker.accuracyCircle.setRadius(accuracy);
             }
             
-            // Always follow the user's movement by centering the map
-            mapInstance.setCenter(newPosition);
-            
-            // Adjust zoom based on accuracy - closer zoom for better accuracy
-            if (accuracy < 20) {
-              mapInstance.setZoom(19); // Very close for high accuracy
-            } else if (accuracy < 50) {
-              mapInstance.setZoom(18); // Close for good accuracy
-            } else if (accuracy < 100) {
-              mapInstance.setZoom(17); // Medium for moderate accuracy
-            } else {
-              mapInstance.setZoom(16); // Farther for poor accuracy
+            // Only recenter map occasionally, not every update
+            const now = Date.now();
+            if (!window.lastMapCenter || now - window.lastMapCenter > 3000) { // Every 3 seconds max
+              mapInstance.setCenter(newPosition);
+              window.lastMapCenter = now;
             }
           }
         },
         (error) => {
           console.error("Error tracking location:", error);
-          setError("Error tracking location: " + error.message + ". Try moving to an area with better GPS signal.");
+          setError("Error tracking location: " + error.message);
         },
         {
-          enableHighAccuracy: true,    // Use GPS if available
-          timeout: 10000,              // Shorter timeout for more frequent updates
-          maximumAge: 1000             // Allow location data up to 1 second old for smoother updates
+          enableHighAccuracy: true,
+          timeout: 8000,               // Faster timeout
+          maximumAge: 5000             // Allow 5 second old data for speed
         }
       );
       setWatchId(id);
@@ -652,42 +634,89 @@ function SaferLocation() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-6">
         {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Smart Route Planning
           </h1>
-         
+          <p className="text-gray-600">Find the safest routes with real-time tracking</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
-          {/* Control Panel */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
-              <div className="flex items-center mb-6">
-                <div className="bg-blue-100 p-3 rounded-full mr-4">
-                  <Route className="h-6 w-6 text-blue-600" />
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
+          {/* Left Sidebar - Features */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 p-5">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <Car className="h-5 w-5 text-blue-500 mr-3" />
+                Car Safety Features
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center text-sm text-gray-700">
+                  <Route className="h-4 w-4 text-green-500 mr-3" />
+                  Real-time traffic analysis
                 </div>
-                <h2 className="text-2xl font-semibold text-gray-900">Route Planner</h2>
+                <div className="flex items-center text-sm text-gray-700">
+                  <Shield className="h-4 w-4 text-blue-500 mr-3" />
+                  Crime data integration
+                </div>
+                <div className="flex items-center text-sm text-gray-700">
+                  <Eye className="h-4 w-4 text-purple-500 mr-3" />
+                  Well-lit route priority
+                </div>
+                <div className="flex items-center text-sm text-gray-700">
+                  <Phone className="h-4 w-4 text-orange-500 mr-3" />
+                  Emergency services nearby
+                </div>
+              </div>
+              
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
+                  <Navigation className="h-4 w-4 mr-2" />
+                  GPS Tips
+                </h4>
+                <div className="space-y-2 text-xs text-gray-600">
+                  <div>🚗 Use green button for Ganganagar</div>
+                  <div>📍 Enable location permissions</div>
+                  <div>🌤️ Move outdoors for better signal</div>
+                  <div>⏱️ Wait for GPS to stabilize</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Content Area */}
+          <div className="lg:col-span-3 space-y-6">
+            {/* Tracker Control Box */}
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+                  <Route className="h-5 w-5 text-blue-600 mr-2" />
+                  Route Control
+                </h2>
+                {!isMapLoaded && (
+                  <div className="flex items-center text-amber-600">
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <span className="text-sm">Loading map...</span>
+                  </div>
+                )}
               </div>
 
               {/* Error Display */}
               {error && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start">
-                  <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 mr-3 flex-shrink-0" />
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start">
+                  <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 mr-2 flex-shrink-0" />
                   <div>
-                    <h3 className="text-sm font-medium text-red-800">Error</h3>
-                    <p className="text-sm text-red-700 mt-1">{error}</p>
+                    <p className="text-sm text-red-700">{error}</p>
                   </div>
                 </div>
               )}
 
               {/* Route Info Display */}
               {routeInfo && (
-                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl">
-                  <h3 className="text-sm font-medium text-green-800 mb-3">Route Information</h3>
+                <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <h3 className="text-sm font-medium text-green-800 mb-2">Route Found</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="flex items-center">
                       <MapPin className="h-4 w-4 text-green-600 mr-2" />
@@ -707,55 +736,72 @@ function SaferLocation() {
                 </div>
               )}
 
-              {/* Live Tracking Button */}
-              <button
-                onClick={toggleLiveTracking}
-                className={`w-full mb-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 flex items-center justify-center ${
-                  watchId
-                    ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 animate-pulse"
-                    : "bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200"
-                } ${!isMapLoaded ? "opacity-50 cursor-not-allowed" : ""}`}
-                disabled={!isMapLoaded}
-              >
-                <Navigation className={`h-5 w-5 mr-2 ${watchId ? "animate-spin" : ""}`} />
-                {watchId ? "🔴 Live Tracking Active" : "📍 Start Live Tracking"}
-              </button>
+              {/* Control Buttons Row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+                {/* Live Tracking Button */}
+                <button
+                  onClick={toggleLiveTracking}
+                  className={`px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center ${
+                    watchId
+                      ? "bg-red-100 text-red-700 border border-red-200 hover:bg-red-200"
+                      : "bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200"
+                  } ${!isMapLoaded ? "opacity-50 cursor-not-allowed" : ""}`}
+                  disabled={!isMapLoaded}
+                >
+                  <Navigation className={`h-4 w-4 mr-2 ${watchId ? "animate-spin" : ""}`} />
+                  {watchId ? "Stop GPS" : "Start GPS"}
+                </button>
+
+                {/* Manual Location Button */}
+                <button
+                  onClick={setManualLocation}
+                  className={`px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 ${!isMapLoaded ? "opacity-50 cursor-not-allowed" : ""}`}
+                  disabled={!isMapLoaded}
+                >
+                  <MapPin className="h-4 w-4 mr-2" />
+                  Ganganagar
+                </button>
+
+                {/* Test API Button */}
+                <button
+                  onClick={wakeUpAPI}
+                  className="px-4 py-3 rounded-lg font-medium text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200 transition-all duration-200 flex items-center justify-center"
+                  disabled={isWakingAPI}
+                >
+                  {isWakingAPI ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Test API
+                </button>
+              </div>
 
               {/* Status indicator when tracking */}
               {watchId && (
-                <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-center">
                     <div className="w-3 h-3 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
                     <span className="text-sm text-blue-700 font-medium">
-                      Following your movement in real-time
+                      GPS tracking active - Following your movement
                     </span>
                   </div>
                 </div>
               )}
 
-              {/* Manual Location Button */}
-              <button
-                onClick={setManualLocation}
-                className={`w-full mb-6 px-4 py-3 rounded-xl font-medium transition-all duration-200 flex items-center justify-center bg-green-100 text-green-700 border border-green-200 hover:bg-green-200 ${!isMapLoaded ? "opacity-50 cursor-not-allowed" : ""}`}
-                disabled={!isMapLoaded}
-              >
-                <MapPin className="h-5 w-5 mr-2" />
-                Set Location: Ganganagar, Rajasthan
-              </button>
-
-              {/* Input Fields */}
-              <div className="space-y-4">
+              {/* Input Fields Row */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Pickup Location
+                    From
                   </label>
                   <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
                       type="text"
                       value={pickup}
                       onChange={(e) => setPickup(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-gray-50 focus:bg-white"
+                      className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm"
                       placeholder="Enter pickup location"
                     />
                   </div>
@@ -763,15 +809,15 @@ function SaferLocation() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Destination
+                    To
                   </label>
                   <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
                       type="text"
                       value={destination}
                       onChange={(e) => setDestination(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-gray-50 focus:bg-white"
+                      className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm"
                       placeholder="Enter destination"
                     />
                   </div>
@@ -781,10 +827,10 @@ function SaferLocation() {
               {/* Find Route Button */}
               <button
                 onClick={fetchSaferRoute}
-                className={`w-full mt-6 px-6 py-4 rounded-xl font-semibold text-white transition-all duration-200 flex items-center justify-center ${
+                className={`w-full px-6 py-3 rounded-lg font-semibold text-white transition-all duration-200 flex items-center justify-center ${
                   !pickup || !destination || !isMapLoaded || isLoadingRoute
                     ? "bg-gray-300 cursor-not-allowed"
-                    : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                    : "bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-lg"
                 }`}
                 disabled={!pickup || !destination || !isMapLoaded || isLoadingRoute}
               >
@@ -800,91 +846,19 @@ function SaferLocation() {
                   </>
                 )}
               </button>
-
-              {/* Wake Up API Button */}
-              <button
-                onClick={wakeUpAPI}
-                className="w-full mt-3 px-4 py-3 rounded-xl font-medium text-blue-700 bg-blue-100 border border-blue-200 hover:bg-blue-200 transition-all duration-200 flex items-center justify-center"
-                disabled={isWakingAPI}
-              >
-                {isWakingAPI ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Testing connection...
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="h-4 w-4 mr-2" />
-                    Test Local API Connection
-                  </>
-                )}
-              </button>
-
-              {/* Service Info */}
-              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-xs text-blue-700">
-                  <strong>Local Development:</strong> Make sure your backend server is running on port 3000. Run "node index.js" in the safer-routes-backend/safer-routes-api directory.
-                </p>
-              </div>
-
-              {/* Loading Map Indicator */}
-              {!isMapLoaded && (
-                <div className="mt-4 flex items-center justify-center text-amber-600">
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  <span className="text-sm">Initializing map...</span>
-                </div>
-              )}
             </div>
 
-            {/* Additional Info Card */}
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Safety Features</h3>
-              <div className="space-y-3">
-                <div className="flex items-center">
-                  <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-                  <span className="text-sm text-gray-600">Real-time traffic analysis</span>
-                </div>
-                <div className="flex items-center">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
-                  <span className="text-sm text-gray-600">Crime data integration</span>
-                </div>
-                <div className="flex items-center">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full mr-3"></div>
-                  <span className="text-sm text-gray-600">Well-lit route prioritization</span>
-                </div>
-                <div className="flex items-center">
-                  <div className="w-2 h-2 bg-orange-500 rounded-full mr-3"></div>
-                  <span className="text-sm text-gray-600">Emergency services proximity</span>
-                </div>
-              </div>
-              
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <h4 className="text-sm font-semibold text-gray-900 mb-3">📍 GPS Accuracy Tips</h4>
-                <div className="space-y-2 text-xs text-gray-600">
-                  <div>• <strong>GPS Issues in Rajasthan?</strong> Use the green "Set Location" button above</div>
-                  <div>• Enable high accuracy location in browser settings</div>
-                  <div>• Move outdoors for better GPS signal</div>
-                  <div>• Allow location permissions when prompted</div>
-                  <div>• Wait 10-15 seconds for GPS to stabilize</div>
-                  <div>• Clear sky view improves accuracy significantly</div>
-                  <div>• If GPS shows wrong city (like Udaipur), use manual location</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Map Container */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-              <div className="relative h-[600px] lg:h-[700px]">
+            {/* Map Container */}
+            <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+              <div className="relative h-[500px] lg:h-[600px]">
                 {!isMapLoaded && (
                   <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-10">
                     <div className="text-center">
-                      <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
-                        <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+                      <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-3">
+                        <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
                       </div>
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">Loading Interactive Map</h3>
-                      <p className="text-gray-500">Please wait while we prepare your mapping experience...</p>
+                      <h3 className="text-lg font-medium text-gray-900 mb-1">Loading Map</h3>
+                      <p className="text-gray-500 text-sm">Preparing your route planning experience...</p>
                     </div>
                   </div>
                 )}
