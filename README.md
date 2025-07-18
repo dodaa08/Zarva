@@ -2,24 +2,14 @@
 
 A smart route planning application that helps users find the safest routes between two locations using real-time data and advanced safety algorithms.
 
-## Project Structure
 
-```
-safer-location-app/
-├── safer-location-frontend/    # React frontend application
-│   ├── src/
-│   │   ├── components/
-│   │   │   └── SaferLocation.tsx    # Main safer location component
-│   │   ├── App.tsx                  # Root application component
-│   │   └── main.tsx                 # Application entry point
-│   └── package.json
-├── safer-routes-backend/       # Node.js backend API
-│   └── safer-routes-api/       # API service for route calculations
-│       ├── index.js            # Main server file
-│       ├── Routes/             # API route handlers
-│       └── package.json
-└── README.md
-```
+# Demo of how it find routes
+
+https://github.com/user-attachments/assets/9d25bfce-caef-44cf-addd-f392450acb07
+
+
+
+
 
 ## Features
 
